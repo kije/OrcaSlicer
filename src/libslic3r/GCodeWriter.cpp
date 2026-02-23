@@ -217,7 +217,8 @@ std::string GCodeWriter::set_acceleration_internal(Acceleration type, unsigned i
     std::ostringstream gcode;
     if (FLAVOR_IS(gcfRepetier))
         gcode << (separate_travel ? "M202 X" : "M201 X") << acceleration << " Y" << acceleration;
-    else if (FLAVOR_IS(gcfRepRapFirmware) || FLAVOR_IS(gcfMarlinFirmware))
+    else if (FLAVOR_IS(gcfRepRapFirmware) || FLAVOR_IS(gcfMarlinFirmware) || FLAVOR_IS(gcfGriffin) || FLAVOR_IS(gcfCheetah))
+        // Griffin/Cheetah: Marlin-based firmware uses M204 P<print> format (not legacy M204 S)
         gcode << (separate_travel ? "M204 T" : "M204 P") << acceleration;
     else if (FLAVOR_IS(gcfKlipper)) {
         gcode << "SET_VELOCITY_LIMIT ACCEL=" << acceleration;
@@ -254,8 +255,15 @@ std::string GCodeWriter::set_jerk_xy(double jerk)
         gcode << "SET_VELOCITY_LIMIT SQUARE_CORNER_VELOCITY=" << jerk;
     } else if (FLAVOR_IS(gcfCheetah)) {
         // Cheetah uses M215 with real jerk in m/s^3 (value * 1000)
-        double jerk_x = jerk * 1000.0;
-        double jerk_y = jerk * 1000.0;
+        // Clamp the jerk to the allowed maximum before scaling.
+        double jerk_x = jerk;
+        double jerk_y = jerk;
+        if (m_max_jerk_x > 0 && jerk_x > m_max_jerk_x)
+            jerk_x = m_max_jerk_x;
+        if (m_max_jerk_y > 0 && jerk_y > m_max_jerk_y)
+            jerk_y = m_max_jerk_y;
+        jerk_x *= 1000.0;
+        jerk_y *= 1000.0;
         gcode << "M215 X" << jerk_x << " Y" << jerk_y;
     } else {
         double jerk_x = jerk;

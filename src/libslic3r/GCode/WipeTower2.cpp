@@ -889,7 +889,9 @@ public:
 	// Set speed factor override percentage.
 	WipeTowerWriter2& speed_override(int speed)
 	{
-        m_gcode += "M220 S" + std::to_string(speed) + "\n";
+        // Griffin/Cheetah: skip M220 (firmware may not support speed override)
+        if (!is_griffin_flavor(m_gcode_flavor))
+            m_gcode += "M220 S" + std::to_string(speed) + "\n";
 		return *this;
     }
 

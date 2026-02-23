@@ -3044,8 +3044,9 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
     this->placeholder_parser().set("used_filament_length", new ConfigOptionString(GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Used_Filament_Length_Placeholder)));
 
     std::string machine_start_gcode = this->placeholder_parser_process("machine_start_gcode", print.config().machine_start_gcode.value, initial_extruder_id);
-    if (print.config().gcode_flavor != gcfKlipper) {
+    if (print.config().gcode_flavor != gcfKlipper && !is_griffin_flavor(print.config().gcode_flavor.value)) {
         // Set bed temperature if the start G-code does not contain any bed temp control G-codes.
+        // Griffin/Cheetah: temperatures are set via the structured file header, not via G-code commands.
         this->_print_first_layer_bed_temperature(file, print, machine_start_gcode, initial_extruder_id, true);
         // Set extruder(s) temperature before and after start G-code.
         this->_print_first_layer_extruder_temperatures(file, print, machine_start_gcode, initial_extruder_id, false);
@@ -3096,11 +3097,13 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
     // Griffin/Cheetah: G280 prime blob after start gcode
     if (is_griffin_flavor(print.config().gcode_flavor.value)) {
         if (print.config().prime_blob_enable.value) {
-            // Travel to prime position
-            file.write_format("G0 X%.3f Y%.3f Z%.3f F9000 ; move to prime position\n",
+            // Travel to prime position using configured travel speed
+            double travel_speed_mm_min = print.config().travel_speed.value * 60.0;
+            file.write_format("G0 X%.3f Y%.3f Z%.3f F%.0f ; move to prime position\n",
                 print.config().extruder_prime_pos_x.value,
                 print.config().extruder_prime_pos_y.value,
-                print.config().extruder_prime_pos_z.value);
+                print.config().extruder_prime_pos_z.value,
+                travel_speed_mm_min);
             file.write_format("G280 ; prime blob\n");
         } else {
             file.write_format("G280 S1 ; prime without blob\n");
@@ -3261,8 +3264,11 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
                     this->placeholder_parser().set("current_object_idx", int(finished_objects));
                     std::string printing_by_object_gcode = this->placeholder_parser_process("printing_by_object_gcode", print.config().printing_by_object_gcode.value, initial_extruder_id);
                     // Set first layer bed and extruder temperatures, don't wait for it to reach the temperature.
-                    this->_print_first_layer_bed_temperature(file, print, printing_by_object_gcode, initial_extruder_id, false);
-                    this->_print_first_layer_extruder_temperatures(file, print, printing_by_object_gcode, initial_extruder_id, false);
+                    // Griffin/Cheetah: temperatures are set via the structured file header, not via G-code commands.
+                    if (!is_griffin_flavor(print.config().gcode_flavor.value)) {
+                        this->_print_first_layer_bed_temperature(file, print, printing_by_object_gcode, initial_extruder_id, false);
+                        this->_print_first_layer_extruder_temperatures(file, print, printing_by_object_gcode, initial_extruder_id, false);
+                    }
                     file.writeln(printing_by_object_gcode);
                 }
                 // Reset the cooling buffer internal state (the current position, feed rate, accelerations).
@@ -3325,8 +3331,7 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
                     bbox_prime.offset(0.5f);
                     bool overlap = bbox_prime.overlap(bbox_print);
 
-                    if (print.config().gcode_flavor == gcfMarlinLegacy || print.config().gcode_flavor == gcfMarlinFirmware
-                        || is_griffin_flavor(print.config().gcode_flavor.value)) {
+                    if (print.config().gcode_flavor == gcfMarlinLegacy || print.config().gcode_flavor == gcfMarlinFirmware) {
                         file.write(this->retract());
                         file.write("M300 S800 P500\n"); // Beep for 500ms, tone 800Hz.
                         if (overlap) {
@@ -3337,6 +3342,9 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
                             //TODO Add a message explaining what the printer is waiting for. This needs a firmware fix.
                             file.write("M1 S10\n");
                         }
+                    } else if (is_griffin_flavor(print.config().gcode_flavor.value)) {
+                        // Griffin/Cheetah: retract but skip M300/M1 (firmware handles user interaction via display)
+                        file.write(this->retract());
                     }
                     else {
                         // This is not Marlin, M1 command is probably not supported.
@@ -3930,8 +3938,8 @@ void GCode::write_griffin_header(GCodeOutputStream &file, Print &print, unsigned
         file.write_format(";BUILD_VOLUME.TEMPERATURE:%d\n", print.config().build_volume_temperature.value);
     }
 
-    // Print time placeholder
-    file.write_format(";PRINT.TIME:0\n");
+    // Print time - embed placeholder that GCodeProcessor will replace with actual estimated time
+    file.write_format(";PRINT.TIME:%s\n", GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Print_Time_Sec_Placeholder).c_str());
     file.write_format(";PRINT.GROUPS:1\n");
 
     // Print bounding box
@@ -4679,23 +4687,26 @@ LayerResult GCode::process_layer(
 
         // Transition from 1st to 2nd layer. Adjust nozzle temperatures as prescribed by the nozzle dependent
         // nozzle_temperature_initial_layer vs. temperature settings.
-        for (const Extruder& extruder : m_writer.extruders()) {
-            if ((print.config().single_extruder_multi_material.value || m_ooze_prevention.enable) &&
-                extruder.id() != m_writer.filament()->id())
-                // In single extruder multi material mode, set the temperature for the current extruder only.
-                continue;
-            int temperature = print.config().nozzle_temperature.get_at(extruder.id());
-            if (temperature > 0 && temperature != print.config().nozzle_temperature_initial_layer.get_at(extruder.id()))
-                gcode += m_writer.set_temperature(temperature, false, extruder.id());
-        }
+        // Griffin/Cheetah: firmware manages temperature transitions based on the header, skip M-code emission.
+        if (!is_griffin_flavor(print.config().gcode_flavor.value)) {
+            for (const Extruder& extruder : m_writer.extruders()) {
+                if ((print.config().single_extruder_multi_material.value || m_ooze_prevention.enable) &&
+                    extruder.id() != m_writer.filament()->id())
+                    // In single extruder multi material mode, set the temperature for the current extruder only.
+                    continue;
+                int temperature = print.config().nozzle_temperature.get_at(extruder.id());
+                if (temperature > 0 && temperature != print.config().nozzle_temperature_initial_layer.get_at(extruder.id()))
+                    gcode += m_writer.set_temperature(temperature, false, extruder.id());
+            }
 
-        // BBS
-        int bed_temp = 0;
-        if (m_config.bed_temperature_formula == BedTempFormula::btfHighestTemp)
-            bed_temp = get_highest_bed_temperature(false,print);
-        else
-            bed_temp = get_bed_temperature(first_extruder_id, false, m_config.curr_bed_type);
-        gcode += m_writer.set_bed_temperature(bed_temp);
+            // BBS
+            int bed_temp = 0;
+            if (m_config.bed_temperature_formula == BedTempFormula::btfHighestTemp)
+                bed_temp = get_highest_bed_temperature(false,print);
+            else
+                bed_temp = get_bed_temperature(first_extruder_id, false, m_config.curr_bed_type);
+            gcode += m_writer.set_bed_temperature(bed_temp);
+        }
         // Mark the temperature transition from 1st to 2nd layer to be finished.
         m_second_layer_things_done = true;
     }
@@ -7827,6 +7838,17 @@ std::string GCode::set_object_info(Print *print) {
               << "Orca-PA-Calibration-Test"
               << " CENTER=" << 0 << "," << 0 << " POLYGON=" << polygon_to_string(polygon_bed, print, true) << "\n";
     } else {
+        // Count total instances for M486 T<count> header
+        size_t total_instances = 0;
+        for (const PrintObject* object : print->objects())
+            total_instances += object->instances().size();
+
+        // Emit M486 T<count> to initialize cancel-object tracking for Marlin-based firmwares
+        if (gflavor == gcfMarlinLegacy || gflavor == gcfMarlinFirmware || gflavor == gcfRepRapFirmware
+            || is_griffin_flavor(gflavor)) {
+            gcode << "M486 T" << total_instances << "\n";
+        }
+
         size_t unique_id = 0;
         for (PrintObject* object : print->objects()) {
             object->set_id(object_id++);

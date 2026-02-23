@@ -3634,6 +3634,7 @@ void PrintConfigDef::init_fff_params()
     def->label = L("Prime position X");
     def->tooltip = L("X coordinate for the prime blob position.");
     def->sidetext = L("mm");
+    def->min = 0;
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(0.0));
 
@@ -3641,6 +3642,7 @@ void PrintConfigDef::init_fff_params()
     def->label = L("Prime position Y");
     def->tooltip = L("Y coordinate for the prime blob position.");
     def->sidetext = L("mm");
+    def->min = 0;
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(0.0));
 
