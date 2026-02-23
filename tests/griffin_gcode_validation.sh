@@ -100,12 +100,13 @@ check_header_field() {
 generate_test_cube() {
     local output="$1"
     # Generate a simple 20mm cube as ASCII STL
+    # Vertex winding follows right-hand rule: (v2-v1)x(v3-v1) matches facet normal
     cat > "$output" << 'STLEOF'
 solid cube
   facet normal 0 0 -1
     outer loop
       vertex 0 0 0
-      vertex 20 0 0
+      vertex 0 20 0
       vertex 20 20 0
     endloop
   endfacet
@@ -113,55 +114,55 @@ solid cube
     outer loop
       vertex 0 0 0
       vertex 20 20 0
-      vertex 0 20 0
+      vertex 20 0 0
+    endloop
+  endfacet
+  facet normal 0 0 1
+    outer loop
+      vertex 0 0 20
+      vertex 20 0 20
+      vertex 20 20 20
     endloop
   endfacet
   facet normal 0 0 1
     outer loop
       vertex 0 0 20
       vertex 20 20 20
-      vertex 20 0 20
-    endloop
-  endfacet
-  facet normal 0 0 1
-    outer loop
-      vertex 0 0 20
       vertex 0 20 20
-      vertex 20 20 20
     endloop
   endfacet
   facet normal 0 -1 0
     outer loop
       vertex 0 0 0
-      vertex 20 0 20
       vertex 20 0 0
+      vertex 20 0 20
     endloop
   endfacet
   facet normal 0 -1 0
     outer loop
       vertex 0 0 0
-      vertex 0 0 20
       vertex 20 0 20
+      vertex 0 0 20
     endloop
   endfacet
   facet normal 0 1 0
     outer loop
       vertex 0 20 0
+      vertex 20 20 20
       vertex 20 20 0
-      vertex 20 20 20
     endloop
   endfacet
   facet normal 0 1 0
     outer loop
       vertex 0 20 0
-      vertex 20 20 20
       vertex 0 20 20
+      vertex 20 20 20
     endloop
   endfacet
   facet normal -1 0 0
     outer loop
       vertex 0 0 0
-      vertex 0 20 0
+      vertex 0 0 20
       vertex 0 20 20
     endloop
   endfacet
@@ -169,21 +170,21 @@ solid cube
     outer loop
       vertex 0 0 0
       vertex 0 20 20
-      vertex 0 0 20
+      vertex 0 20 0
     endloop
   endfacet
   facet normal 1 0 0
     outer loop
       vertex 20 0 0
-      vertex 20 0 20
-      vertex 20 20 20
-    endloop
-  endfacet
-  facet normal 1 0 0
-    outer loop
-      vertex 20 0 0
-      vertex 20 20 20
       vertex 20 20 0
+      vertex 20 20 20
+    endloop
+  endfacet
+  facet normal 1 0 0
+    outer loop
+      vertex 20 0 0
+      vertex 20 20 20
+      vertex 20 0 20
     endloop
   endfacet
 endsolid cube
@@ -289,10 +290,12 @@ main() {
     done
 
     # Check start gcode doesn't have temperature commands for Griffin printers
+    # Only check machine_start_gcode field, not the whole file (end gcode legitimately has M104 S0 etc.)
     for printer in "UltiMaker S3" "UltiMaker S5" "UltiMaker S7" "UltiMaker 2+ Connect"; do
         machine_json="$PROFILES_DIR/machine/${printer} 0.4 nozzle.json"
         if [[ -f "$machine_json" ]]; then
-            if grep -q 'M104\|M109\|M140\|M190' "$machine_json"; then
+            start_gcode=$(python3 -c "import json; d=json.load(open('$machine_json')); print(d.get('machine_start_gcode',''))" 2>/dev/null)
+            if echo "$start_gcode" | grep -q 'M104\|M109\|M140\|M190'; then
                 fail "${printer}: start gcode contains temperature M-codes (should use header)"
             else
                 pass "${printer}: start gcode has no temperature M-codes"
@@ -323,6 +326,9 @@ for d in [common, machine, process]:
                      'instantiation', 'compatible_printers', 'printer_model',
                      'default_print_profile', 'default_filament_profile'):
             merged[k] = v
+
+# OrcaSlicer CLI requires 'from' field; 'user' indicates non-system preset
+merged['from'] = 'user'
 
 json.dump(merged, open('$MERGED_SETTINGS', 'w'), indent=2)
 " 2>&1
@@ -524,6 +530,7 @@ json.dump(merged, open('$MERGED_SETTINGS', 'w'), indent=2)
                     -s wall_line_count=3 \
                     -s infill_line_distance=4.0 \
                     -s infill_pattern=grid \
+                    -s roofing_layer_count=1 \
                     -l "$TEST_STL" \
                     > "$TMPDIR/cura_stdout.log" 2>&1; then
                     pass "CuraEngine slicing succeeded"
