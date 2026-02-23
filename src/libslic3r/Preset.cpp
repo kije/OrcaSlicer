@@ -411,6 +411,21 @@ void Preset::normalize(DynamicPrintConfig &config)
         }
     }
 
+    // Griffin/Cheetah specific settings: ensure these keys exist with defaults
+    // so pre-existing printer configs don't crash the GUI when these options are referenced.
+    {
+        const auto &defaults = FullPrintConfig::defaults();
+        for (const std::string &key : { "prime_blob_enable", "extruder_prime_pos_x", "extruder_prime_pos_y",
+                                         "extruder_prime_pos_z", "machine_heated_build_volume",
+                                         "build_volume_temperature", "machine_nozzle_id" }) {
+            if (config.option(key) == nullptr) {
+                const ConfigOption *default_opt = defaults.option(key);
+                if (default_opt != nullptr)
+                    config.set_key_value(key, default_opt->clone());
+            }
+        }
+    }
+
     handle_legacy_sla(config);
 }
 
