@@ -9692,7 +9692,7 @@ std::map<std::string, std::string> validate(const FullPrintConfig &cfg, bool und
         cfg.gcode_flavor.value != gcfMarlinFirmware &&
         cfg.gcode_flavor.value != gcfMachinekit &&
         cfg.gcode_flavor.value != gcfRepetier)
-        error_message.emplace("use_firmware_retraction","--use-firmware-retraction is only supported by Klipper, Marlin, Smoothie, RepRapFirmware, Repetier and Machinekit firmware");
+        error_message.emplace("use_firmware_retraction","--use-firmware-retraction is only supported by Klipper, Marlin, Smoothie, RepRapFirmware, Repetier and Machinekit firmware (not supported by Griffin or Cheetah)");
 
     if (cfg.use_firmware_retraction.value)
         for (unsigned char wipe : cfg.wipe.values)

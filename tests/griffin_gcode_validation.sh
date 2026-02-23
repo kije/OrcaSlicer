@@ -369,6 +369,7 @@ json.dump(merged, open('$MERGED_SETTINGS', 'w'), indent=2)
         check_header_field "$ORCA_GCODE" "GENERATOR.VERSION" "Generator version present"
         check_header_field "$ORCA_GCODE" "TARGET_MACHINE.NAME" "Target machine name present"
         check_header_field "$ORCA_GCODE" "EXTRUDER_TRAIN.0.INITIAL_TEMPERATURE" "Extruder 0 initial temp present"
+        check_header_field "$ORCA_GCODE" "EXTRUDER_TRAIN.0.MATERIAL.VOLUME_USED" "Extruder 0 material volume used present"
         check_header_field "$ORCA_GCODE" "EXTRUDER_TRAIN.0.NOZZLE.DIAMETER" "Extruder 0 nozzle diameter present"
         check_header_field "$ORCA_GCODE" "BUILD_PLATE.INITIAL_TEMPERATURE" "Build plate temp present"
 

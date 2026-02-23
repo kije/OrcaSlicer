@@ -1213,6 +1213,23 @@ void GCodeProcessor::run_post_process()
             pos = gcode_line.find(used_filament_placeholder, pos + strlen(buf));
         }
 
+        // Replace Griffin per-extruder volume placeholders {griffin_vol_N}
+        for (size_t extruder_idx = 0; extruder_idx < 16; ++extruder_idx) {
+            char placeholder[32];
+            sprintf(placeholder, "{griffin_vol_%d}", (int)extruder_idx);
+            pos = gcode_line.find(placeholder);
+            if (pos != std::string::npos) {
+                double volume_mm3 = 0.0;
+                auto it = m_used_filaments.total_volumes_per_filament.find(extruder_idx);
+                if (it != m_used_filaments.total_volumes_per_filament.end())
+                    volume_mm3 = it->second;
+                char buf[64];
+                sprintf(buf, "%.1f", volume_mm3);
+                gcode_line.replace(pos, strlen(placeholder), buf);
+                processed = true;
+            }
+        }
+
         return processed;
     };
 

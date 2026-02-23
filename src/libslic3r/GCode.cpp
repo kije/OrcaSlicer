@@ -3922,6 +3922,8 @@ void GCode::write_griffin_header(GCodeOutputStream &file, Print &print, unsigned
     for (size_t i = 0; i < num_extruders; ++i) {
         int init_temp = print.config().nozzle_temperature_initial_layer.get_at(i);
         file.write_format(";EXTRUDER_TRAIN.%d.INITIAL_TEMPERATURE:%d\n", (int)i, init_temp);
+        // Material volume used - placeholder replaced by GCodeProcessor with actual value
+        file.write_format(";EXTRUDER_TRAIN.%d.MATERIAL.VOLUME_USED:{griffin_vol_%d}\n", (int)i, (int)i);
         file.write_format(";EXTRUDER_TRAIN.%d.NOZZLE.DIAMETER:%.1f\n", (int)i, print.config().nozzle_diameter.get_at(i));
         std::string nozzle_id = print.config().machine_nozzle_id.value;
         if (!nozzle_id.empty())
