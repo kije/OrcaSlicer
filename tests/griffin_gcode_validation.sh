@@ -487,27 +487,53 @@ json.dump(merged, open('$MERGED_SETTINGS', 'w'), indent=2)
             CURA_GCODE="$TMPDIR/cura_griffin.gcode"
             info "Slicing with CuraEngine (Griffin flavor)..."
 
+            # CuraEngine needs CURA_ENGINE_SEARCH_PATH to find extruder definitions
+            # The definitions dir typically contains both printer and extruder defs
+            EXTRUDERS_DIR="$(dirname "$CURA_DEFS")/extruders"
+            if [[ -d "$EXTRUDERS_DIR" ]]; then
+                export CURA_ENGINE_SEARCH_PATH="${CURA_DEFS}:${EXTRUDERS_DIR}"
+            else
+                export CURA_ENGINE_SEARCH_PATH="${CURA_DEFS}"
+            fi
+            info "CURA_ENGINE_SEARCH_PATH=$CURA_ENGINE_SEARCH_PATH"
+
             # CuraEngine CLI syntax:
-            # CuraEngine slice -j <machine_def.json> -o output.gcode -l model.stl
+            # CuraEngine slice -j <machine_def.json> -o output.gcode -l model.stl -s key=value
+            # Note: CuraEngine cannot evaluate Python expressions in def.json files,
+            # so derived settings like infill_sparse_density must be specified as
+            # their underlying value (infill_line_distance).
             CURA_DEF="$CURA_DEFS/ultimaker_s5.def.json"
             if [[ ! -f "$CURA_DEF" ]]; then
                 # Try alternate paths
-                CURA_DEF=$(find "$CURA_DEFS" -name "ultimaker_s5*" -name "*.def.json" | head -1)
+                CURA_DEF=$(find "$CURA_DEFS" -name "ultimaker_s5*" -name "*.def.json" 2>/dev/null | head -1)
             fi
 
             if [[ -n "$CURA_DEF" && -f "$CURA_DEF" ]]; then
-                if "$CURA_BIN" slice \
+                if "$CURA_BIN" slice -v \
                     -j "$CURA_DEF" \
                     -o "$CURA_GCODE" \
-                    -l "$TEST_STL" \
+                    -s machine_gcode_flavor=Griffin \
+                    -g \
+                    -e0 \
+                    -s material_print_temperature=210 \
+                    -s material_bed_temperature=60 \
+                    -s default_material_print_temperature=210 \
+                    -s default_material_bed_temperature=60 \
                     -s layer_height=0.2 \
-                    -s infill_sparse_density=20 \
+                    -s wall_line_count=3 \
+                    -s infill_line_distance=4.0 \
+                    -s infill_pattern=grid \
+                    -l "$TEST_STL" \
                     > "$TMPDIR/cura_stdout.log" 2>&1; then
                     pass "CuraEngine slicing succeeded"
                     info "Cura output: $CURA_GCODE ($(wc -l < "$CURA_GCODE") lines)"
                 else
                     fail "CuraEngine slicing failed"
                     info "Check log: $TMPDIR/cura_stdout.log"
+                    if $VERBOSE; then
+                        echo "    Last 20 lines of log:"
+                        tail -20 "$TMPDIR/cura_stdout.log" 2>/dev/null | sed 's/^/      /'
+                    fi
                 fi
             else
                 skip "Cura machine definition for UltiMaker S5 not found in $CURA_DEFS"
