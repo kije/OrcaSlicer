@@ -2491,7 +2491,10 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
         }
     }
 
-    // Griffin/Cheetah: write structured header instead of standard header
+    // Griffin/Cheetah: write structured header instead of standard header.
+    // Note: We use extruder 0 for bed temp lookup because the actual initial extruder is
+    // determined later (during tool ordering). On Ultimaker hardware, bed temperature is
+    // typically the same for all extruders on a given bed type, so this is safe in practice.
     if (is_griffin_flavor(print.config().gcode_flavor.value)) {
         write_griffin_header(file, print, 0);
     }
@@ -3851,7 +3854,8 @@ void GCode::print_machine_envelope(GCodeOutputStream &file, Print &print)
         // Now M204 - acceleration. This one is quite hairy thanks to how Marlin guys care about
         // Legacy Marlin should export travel acceleration the same as printing acceleration.
         // MarlinFirmware has the two separated.
-        int travel_acc = flavor == gcfMarlinLegacy
+        // Griffin also uses extruding acceleration for travel (like legacy Marlin).
+        int travel_acc = (flavor == gcfMarlinLegacy || is_griffin_flavor(flavor))
                        ? int(print.config().machine_max_acceleration_extruding.values.front() + 0.5)
                        : int(print.config().machine_max_acceleration_travel.values.front() + 0.5);
         if (flavor == gcfRepRapFirmware)
@@ -7805,7 +7809,8 @@ inline std::string polygon_to_string(const Polygon &polygon, Print *print, bool 
 std::string GCode::set_object_info(Print *print) {
     const auto gflavor = print->config().gcode_flavor.value;
     if (print->is_BBL_printer() ||
-        (gflavor != gcfKlipper && gflavor != gcfMarlinLegacy && gflavor != gcfMarlinFirmware && gflavor != gcfRepRapFirmware))
+        (gflavor != gcfKlipper && gflavor != gcfMarlinLegacy && gflavor != gcfMarlinFirmware && gflavor != gcfRepRapFirmware
+         && !is_griffin_flavor(gflavor)))
         return "";
     std::ostringstream gcode;
     size_t object_id = 0;
@@ -7835,7 +7840,8 @@ std::string GCode::set_object_info(Print *print) {
                 if (gflavor == gcfKlipper) {
                     gcode << "EXCLUDE_OBJECT_DEFINE NAME=" << inst_name << " CENTER=" << center.x() << "," << center.y()
                           << " POLYGON=" << polygon_to_string(inst.get_convex_hull_2d(), print) << "\n";
-                } else if (gflavor == gcfMarlinLegacy || gflavor == gcfMarlinFirmware || gflavor == gcfRepRapFirmware) {
+                } else if (gflavor == gcfMarlinLegacy || gflavor == gcfMarlinFirmware || gflavor == gcfRepRapFirmware
+                           || is_griffin_flavor(gflavor)) {
                     gcode << "M486 S" << std::to_string(inst.unique_id);
                     if (gflavor == gcfRepRapFirmware)
                         gcode << " A"

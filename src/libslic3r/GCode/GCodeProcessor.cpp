@@ -1958,6 +1958,7 @@ void GCodeProcessor::register_commands()
         {"M203", [this](const GCodeReader::GCodeLine& line) { process_M203(line); }}, // Set maximum feedrate
         {"M204", [this](const GCodeReader::GCodeLine& line) { process_M204(line); }}, // Set default acceleration
         {"M205", [this](const GCodeReader::GCodeLine& line) { process_M205(line); }}, // Advanced settings
+        {"M215", [this](const GCodeReader::GCodeLine& line) { process_M215(line); }}, // Cheetah: Set jerk limits (m/s^3)
         {"M221", [this](const GCodeReader::GCodeLine& line) { process_M221(line); }}, // Set extrude factor override percentage
 
         {"M400", [this](const GCodeReader::GCodeLine& line) { process_M400(line); }}, // BBS delay
@@ -5396,6 +5397,21 @@ void GCodeProcessor::process_M205(const GCodeReader::GCodeLine& line)
 
             if (line.has_value('T', value))
                 set_option_value(m_time_processor.machine_limits.machine_min_travel_rate, i, value);
+        }
+    }
+}
+
+void GCodeProcessor::process_M215(const GCodeReader::GCodeLine& line)
+{
+    // Cheetah firmware: M215 X<jerk_x> Y<jerk_y> in m/s^3
+    // Convert back to mm/s by dividing by 1000 (the writer multiplies by 1000)
+    for (size_t i = 0; i < static_cast<size_t>(PrintEstimatedStatistics::ETimeMode::Count); ++i) {
+        if (static_cast<PrintEstimatedStatistics::ETimeMode>(i) == PrintEstimatedStatistics::ETimeMode::Normal ||
+            m_time_processor.machine_envelope_processing_enabled) {
+            if (line.has_x())
+                set_option_value(m_time_processor.machine_limits.machine_max_jerk_x, i, line.x() / 1000.0f);
+            if (line.has_y())
+                set_option_value(m_time_processor.machine_limits.machine_max_jerk_y, i, line.y() / 1000.0f);
         }
     }
 }
