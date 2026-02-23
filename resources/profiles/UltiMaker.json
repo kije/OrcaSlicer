@@ -20,6 +20,10 @@
         {
             "name": "UltiMaker S7",
             "sub_path": "machine/UltiMaker S7.json"
+        },
+        {
+            "name": "UltiMaker 2+ Connect",
+            "sub_path": "machine/UltiMaker 2+ Connect.json"
         }
     ],
     "process_list": [
@@ -50,6 +54,10 @@
         {
             "name": "0.20mm Standard @UltiMaker S7",
             "sub_path": "process/0.20mm Standard @UltiMaker S7.json"
+        },
+        {
+            "name": "0.20mm Standard @UltiMaker 2+ Connect",
+            "sub_path": "process/0.20mm Standard @UltiMaker 2+ Connect.json"
         }
     ],
     "filament_list": [],
@@ -73,6 +81,10 @@
         {
             "name": "UltiMaker S7 0.4 nozzle",
             "sub_path": "machine/UltiMaker S7 0.4 nozzle.json"
+        },
+        {
+            "name": "UltiMaker 2+ Connect 0.4 nozzle",
+            "sub_path": "machine/UltiMaker 2+ Connect 0.4 nozzle.json"
         }
     ]
 }
