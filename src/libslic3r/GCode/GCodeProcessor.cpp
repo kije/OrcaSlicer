@@ -1213,6 +1213,23 @@ void GCodeProcessor::run_post_process()
             pos = gcode_line.find(used_filament_placeholder, pos + strlen(buf));
         }
 
+        // Replace Griffin per-extruder volume placeholders {griffin_vol_N}
+        for (size_t extruder_idx = 0; extruder_idx < 16; ++extruder_idx) {
+            char placeholder[32];
+            sprintf(placeholder, "{griffin_vol_%d}", (int)extruder_idx);
+            pos = gcode_line.find(placeholder);
+            if (pos != std::string::npos) {
+                double volume_mm3 = 0.0;
+                auto it = m_used_filaments.total_volumes_per_filament.find(extruder_idx);
+                if (it != m_used_filaments.total_volumes_per_filament.end())
+                    volume_mm3 = it->second;
+                char buf[64];
+                sprintf(buf, "%.1f", volume_mm3);
+                gcode_line.replace(pos, strlen(placeholder), buf);
+                processed = true;
+            }
+        }
+
         return processed;
     };
 
@@ -1958,6 +1975,7 @@ void GCodeProcessor::register_commands()
         {"M203", [this](const GCodeReader::GCodeLine& line) { process_M203(line); }}, // Set maximum feedrate
         {"M204", [this](const GCodeReader::GCodeLine& line) { process_M204(line); }}, // Set default acceleration
         {"M205", [this](const GCodeReader::GCodeLine& line) { process_M205(line); }}, // Advanced settings
+        {"M215", [this](const GCodeReader::GCodeLine& line) { process_M215(line); }}, // Cheetah: Set jerk limits (m/s^3)
         {"M221", [this](const GCodeReader::GCodeLine& line) { process_M221(line); }}, // Set extrude factor override percentage
 
         {"M400", [this](const GCodeReader::GCodeLine& line) { process_M400(line); }}, // BBS delay
@@ -2224,10 +2242,11 @@ void GCodeProcessor::apply_config(const PrintConfig& config)
         m_result.filament_costs[i]      = static_cast<float>(config.filament_cost.get_at(i));
     }
 
-    if (m_flavor == gcfMarlinLegacy || m_flavor == gcfMarlinFirmware || m_flavor == gcfKlipper || m_flavor == gcfRepRapFirmware) {
+    if (m_flavor == gcfMarlinLegacy || m_flavor == gcfMarlinFirmware || m_flavor == gcfKlipper || m_flavor == gcfRepRapFirmware
+        || is_griffin_flavor(m_flavor)) {
         m_time_processor.machine_limits = reinterpret_cast<const MachineEnvelopeConfig&>(config);
-        if (m_flavor == gcfMarlinLegacy || m_flavor == gcfKlipper) {
-            // Legacy Marlin does not have separate travel acceleration, it uses the 'extruding' value instead.
+        if (m_flavor == gcfMarlinLegacy || m_flavor == gcfKlipper || is_griffin_flavor(m_flavor)) {
+            // Legacy Marlin / Griffin does not have separate travel acceleration, it uses the 'extruding' value instead.
             m_time_processor.machine_limits.machine_max_acceleration_travel = m_time_processor.machine_limits.machine_max_acceleration_extruding;
         }
         if (m_flavor == gcfRepRapFirmware) {
@@ -2496,7 +2515,7 @@ void GCodeProcessor::apply_config(const DynamicPrintConfig& config)
     if (machine_tool_change_time != nullptr)
         m_time_processor.machine_tool_change_time = static_cast<float>(machine_tool_change_time->value);
 
-    if (m_flavor == gcfMarlinLegacy || m_flavor == gcfMarlinFirmware || m_flavor == gcfKlipper) {
+    if (m_flavor == gcfMarlinLegacy || m_flavor == gcfMarlinFirmware || m_flavor == gcfKlipper || is_griffin_flavor(m_flavor)) {
         const ConfigOptionFloats* machine_max_acceleration_x = config.option<ConfigOptionFloats>("machine_max_acceleration_x");
         if (machine_max_acceleration_x != nullptr)
             m_time_processor.machine_limits.machine_max_acceleration_x.values = machine_max_acceleration_x->values;
@@ -2558,10 +2577,11 @@ void GCodeProcessor::apply_config(const DynamicPrintConfig& config)
             m_time_processor.machine_limits.machine_max_acceleration_retracting.values = machine_max_acceleration_retracting->values;
 
 
-        // Legacy Marlin does not have separate travel acceleration, it uses the 'extruding' value instead.
-        const ConfigOptionFloats* machine_max_acceleration_travel = config.option<ConfigOptionFloats>(m_flavor == gcfMarlinLegacy || m_flavor == gcfKlipper
-                                                                                                    ? "machine_max_acceleration_extruding"
-                                                                                                    : "machine_max_acceleration_travel");
+        // Legacy Marlin / Griffin does not have separate travel acceleration, it uses the 'extruding' value instead.
+        const ConfigOptionFloats* machine_max_acceleration_travel = config.option<ConfigOptionFloats>(
+            m_flavor == gcfMarlinLegacy || m_flavor == gcfKlipper || is_griffin_flavor(m_flavor)
+                ? "machine_max_acceleration_extruding"
+                : "machine_max_acceleration_travel");
         if (machine_max_acceleration_travel != nullptr)
             m_time_processor.machine_limits.machine_max_acceleration_travel.values = machine_max_acceleration_travel->values;
 
@@ -3535,7 +3555,9 @@ bool GCodeProcessor::process_cura_tags(const std::string_view comment)
         else if (flavor == "Marlin(Volumetric)")
             m_flavor = gcfMarlinLegacy; // is this correct ?
         else if (flavor == "Griffin")
-            m_flavor = gcfMarlinLegacy; // is this correct ?
+            m_flavor = gcfGriffin;
+        else if (flavor == "Cheetah")
+            m_flavor = gcfCheetah;
         else if (flavor == "Repetier")
             m_flavor = gcfRepetier;
         else if (flavor == "RepRap")
@@ -5316,7 +5338,8 @@ void GCodeProcessor::process_M203(const GCodeReader::GCodeLine& line)
 
     // see http://reprap.org/wiki/G-code#M203:_Set_maximum_feedrate
     // http://smoothieware.org/supported-g-codes
-    float factor = (m_flavor == gcfMarlinLegacy || m_flavor == gcfMarlinFirmware || m_flavor == gcfSmoothie || m_flavor == gcfKlipper) ? 1.0f : MMMIN_TO_MMSEC;
+    float factor = (m_flavor == gcfMarlinLegacy || m_flavor == gcfMarlinFirmware || m_flavor == gcfSmoothie || m_flavor == gcfKlipper
+                    || is_griffin_flavor(m_flavor)) ? 1.0f : MMMIN_TO_MMSEC;
 
     // Write to index i (0=Normal, 1=Stealth) — matches get_axis_max_feedrate's read pattern.
     for (size_t i = 0; i < static_cast<size_t>(PrintEstimatedStatistics::ETimeMode::Count); ++i) {
@@ -5391,6 +5414,21 @@ void GCodeProcessor::process_M205(const GCodeReader::GCodeLine& line)
 
             if (line.has_value('T', value))
                 set_option_value(m_time_processor.machine_limits.machine_min_travel_rate, i, value);
+        }
+    }
+}
+
+void GCodeProcessor::process_M215(const GCodeReader::GCodeLine& line)
+{
+    // Cheetah firmware: M215 X<jerk_x> Y<jerk_y> in m/s^3
+    // Convert back to mm/s by dividing by 1000 (the writer multiplies by 1000)
+    for (size_t i = 0; i < static_cast<size_t>(PrintEstimatedStatistics::ETimeMode::Count); ++i) {
+        if (static_cast<PrintEstimatedStatistics::ETimeMode>(i) == PrintEstimatedStatistics::ETimeMode::Normal ||
+            m_time_processor.machine_envelope_processing_enabled) {
+            if (line.has_x())
+                set_option_value(m_time_processor.machine_limits.machine_max_jerk_x, i, line.x() / 1000.0f);
+            if (line.has_y())
+                set_option_value(m_time_processor.machine_limits.machine_max_jerk_y, i, line.y() / 1000.0f);
         }
     }
 }

@@ -626,8 +626,9 @@ public:
             m_gcode += (std::string("M572 D") + std::to_string(m_current_tool) + " S0\n");
         else if (m_gcode_flavor == gcfKlipper)
             m_gcode += "SET_PRESSURE_ADVANCE ADVANCE=0\n";
-        else
+        else if (!is_griffin_flavor(m_gcode_flavor))
             m_gcode += "M900 K0\n";
+        // Griffin/Cheetah: no linear advance command (firmware handles pressure advance differently)
         return *this;
     }
 
@@ -888,7 +889,9 @@ public:
 	// Set speed factor override percentage.
 	WipeTowerWriter2& speed_override(int speed)
 	{
-        m_gcode += "M220 S" + std::to_string(speed) + "\n";
+        // Griffin/Cheetah: skip M220 (firmware may not support speed override)
+        if (!is_griffin_flavor(m_gcode_flavor))
+            m_gcode += "M220 S" + std::to_string(speed) + "\n";
 		return *this;
     }
 
@@ -912,7 +915,7 @@ public:
 	// Set digital trimpot motor
 	WipeTowerWriter2& set_extruder_trimpot(int current)
 	{
-        if (m_gcode_flavor == gcfKlipper)
+        if (m_gcode_flavor == gcfKlipper || is_griffin_flavor(m_gcode_flavor))
             return *this;
         if (m_gcode_flavor == gcfRepRapSprinter || m_gcode_flavor == gcfRepRapFirmware)
             m_gcode += "M906 E";

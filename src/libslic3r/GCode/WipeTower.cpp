@@ -573,12 +573,13 @@ public:
     }
 
     WipeTowerWriter&            disable_linear_advance() {
-        if (m_gcode_flavor == gcfKlipper)
-            m_gcode += "SET_PRESSURE_ADVANCE ADVANCE=0\n";
-        else if (m_gcode_flavor == gcfRepRapFirmware)
+        if (m_gcode_flavor == gcfRepRapSprinter || m_gcode_flavor == gcfRepRapFirmware)
             m_gcode += std::string("M572 D") + std::to_string(m_current_tool) + " S0\n";
-        else
+        else if (m_gcode_flavor == gcfKlipper)
+            m_gcode += "SET_PRESSURE_ADVANCE ADVANCE=0\n";
+        else if (!is_griffin_flavor(m_gcode_flavor))
             m_gcode += "M900 K0\n";
+        // Griffin/Cheetah: no linear advance command (firmware handles pressure advance differently)
 
         return *this;
     }
@@ -997,7 +998,9 @@ public:
 	// Set speed factor override percentage.
 	WipeTowerWriter& speed_override(int speed)
 	{
-        m_gcode += "M220 S" + std::to_string(speed) + "\n";
+        // Griffin/Cheetah: skip M220 (firmware may not support speed override)
+        if (!is_griffin_flavor(m_gcode_flavor))
+            m_gcode += "M220 S" + std::to_string(speed) + "\n";
 		return *this;
     }
 

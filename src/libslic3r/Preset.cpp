@@ -411,6 +411,21 @@ void Preset::normalize(DynamicPrintConfig &config)
         }
     }
 
+    // Griffin/Cheetah specific settings: ensure these keys exist with defaults
+    // so pre-existing printer configs don't crash the GUI when these options are referenced.
+    {
+        const auto &defaults = FullPrintConfig::defaults();
+        for (const std::string &key : { "prime_blob_enable", "extruder_prime_pos_x", "extruder_prime_pos_y",
+                                         "extruder_prime_pos_z", "machine_heated_build_volume",
+                                         "build_volume_temperature", "machine_nozzle_id" }) {
+            if (config.option(key) == nullptr) {
+                const ConfigOption *default_opt = defaults.option(key);
+                if (default_opt != nullptr)
+                    config.set_key_value(key, default_opt->clone());
+            }
+        }
+    }
+
     handle_legacy_sla(config);
 }
 
@@ -1031,7 +1046,9 @@ static std::vector<std::string> s_Preset_printer_options {
     "cooling_tube_length", "high_current_on_filament_swap", "parking_pos_retraction", "extra_loading_move", "purge_in_prime_tower", "enable_filament_ramming",
     "z_offset",
     "disable_m73", "preferred_orientation", "emit_machine_limits_to_gcode", "pellet_modded_printer", "support_multi_bed_types", "default_bed_type", "bed_mesh_min","bed_mesh_max","bed_mesh_probe_distance", "adaptive_bed_mesh_margin", "enable_long_retraction_when_cut","long_retractions_when_cut","retraction_distances_when_cut",
-    "bed_temperature_formula", "nozzle_flush_dataset"
+    "bed_temperature_formula", "nozzle_flush_dataset",
+    "prime_blob_enable", "extruder_prime_pos_x", "extruder_prime_pos_y", "extruder_prime_pos_z",
+    "machine_heated_build_volume", "build_volume_temperature", "machine_nozzle_id"
     };
 
 static std::vector<std::string> s_Preset_sla_print_options {

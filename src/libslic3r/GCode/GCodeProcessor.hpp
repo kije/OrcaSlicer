@@ -1024,6 +1024,9 @@ class Print;
         // Advanced settings
         void process_M205(const GCodeReader::GCodeLine& line);
 
+        // Cheetah jerk (m/s^3, convert to mm/s for internal use)
+        void process_M215(const GCodeReader::GCodeLine& line);
+
         // Klipper SET_VELOCITY_LIMIT
         void process_SET_VELOCITY_LIMIT(const GCodeReader::GCodeLine& line);
 

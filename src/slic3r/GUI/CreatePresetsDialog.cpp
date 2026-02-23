@@ -147,7 +147,7 @@ static const std::unordered_map<std::string, std::vector<std::string>> printer_m
      {"Thinker X400",      {"Thinker X400"}},
      {"Tronxy",            {"Tronxy X5SA 400 Marlin Firmware"}},
      {"TwoTrees",          {"TwoTrees SP-5 Klipper", "TwoTrees SK1"}},
-     {"UltiMaker",         {"UltiMaker 2"}},
+     {"UltiMaker",         {"UltiMaker 2", "UltiMaker S3", "UltiMaker S5", "UltiMaker S7", "UltiMaker 2+ Connect"}},
      {"Vivedino",          {"Troodon 2.0 - RRF",     "Troodon 2.0 - Klipper"}},
      {"Volumic",           {"EXO42 Performance", "EXO65 Performance", "SH65 Performance",  "EXO42",             "EXO65",           
                             "SH65",              "VS30SC2",           "VS30SC",            "VS30ULTRA",         "VS30MK3",         
