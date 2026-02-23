@@ -309,33 +309,78 @@ main() {
 
     ORCA_GCODE="$TMPDIR/orca_griffin.gcode"
 
-    # Merge machine + process settings into a single config for CLI
-    MERGED_SETTINGS="$TMPDIR/merged_settings.json"
+    # OrcaSlicer CLI requires separate config files, each with "type", "name", and "from" fields.
+    # Create a merged machine config (common defaults + printer-specific overrides)
+    MACHINE_SETTINGS="$TMPDIR/machine_settings.json"
+    PROCESS_SETTINGS="$TMPDIR/process_settings.json"
+    FILAMENT_SETTINGS="$TMPDIR/filament_settings.json"
+
     python3 -c "
 import json, sys
 
-machine = json.load(open('$PROFILES_DIR/machine/UltiMaker S5 0.4 nozzle.json'))
-common = json.load(open('$PROFILES_DIR/machine/fdm_machine_common.json'))
-process = json.load(open('$PROFILES_DIR/process/0.20mm Standard @UltiMaker S5.json'))
+# Build machine config: common defaults overridden by printer-specific settings
+machine_common = json.load(open('$PROFILES_DIR/machine/fdm_machine_common.json'))
+machine_specific = json.load(open('$PROFILES_DIR/machine/UltiMaker S5 0.4 nozzle.json'))
 
-# Merge: common < machine < process
-merged = {}
-for d in [common, machine, process]:
+machine_merged = {}
+for d in [machine_common, machine_specific]:
     for k, v in d.items():
-        if k not in ('type', 'name', 'inherits', 'from', 'setting_id',
-                     'instantiation', 'compatible_printers', 'printer_model',
-                     'default_print_profile', 'default_filament_profile'):
-            merged[k] = v
+        if k not in ('instantiation',):
+            machine_merged[k] = v
+machine_merged['type'] = 'machine'
+machine_merged['name'] = 'UltiMaker S5 0.4 nozzle'
+machine_merged['from'] = 'user'
+json.dump(machine_merged, open('$MACHINE_SETTINGS', 'w'), indent=2)
 
-# OrcaSlicer CLI requires 'from' field; 'user' indicates non-system preset
-merged['from'] = 'user'
+# Build process config: common defaults overridden by printer-specific process
+process_common = json.load(open('$PROFILES_DIR/process/fdm_process_common.json'))
+process_specific = json.load(open('$PROFILES_DIR/process/0.20mm Standard @UltiMaker S5.json'))
 
-json.dump(merged, open('$MERGED_SETTINGS', 'w'), indent=2)
+process_merged = {}
+for d in [process_common, process_specific]:
+    for k, v in d.items():
+        if k not in ('instantiation',):
+            process_merged[k] = v
+process_merged['type'] = 'process'
+process_merged['name'] = '0.20mm Standard @UltiMaker S5'
+process_merged['from'] = 'user'
+json.dump(process_merged, open('$PROCESS_SETTINGS', 'w'), indent=2)
+
+# Build a minimal PLA filament config
+filament = {
+    'type': 'filament',
+    'name': 'Generic PLA',
+    'from': 'user',
+    'filament_type': ['PLA'],
+    'nozzle_temperature': ['210'],
+    'nozzle_temperature_initial_layer': ['210'],
+    'bed_temperature': ['60'],
+    'bed_temperature_initial_layer': ['60'],
+    'filament_density': ['1.24'],
+    'filament_cost': ['20'],
+    'filament_colour': ['#FFFFFF'],
+    'filament_max_volumetric_speed': ['15'],
+    'fan_min_speed': ['100'],
+    'fan_max_speed': ['100'],
+    'temperature_vitrification': ['55'],
+    'slow_down_min_speed': ['10'],
+    'filament_start_gcode': [''],
+    'filament_end_gcode': [''],
+    'reduce_fan_stop_start_freq': ['0'],
+    'slow_down_for_layer_cooling': ['1'],
+    'close_fan_the_first_x_layers': ['1'],
+    'overhang_fan_speed': ['100'],
+    'overhang_fan_threshold': ['25%'],
+    'fan_cooling_layer_time': ['100'],
+    'filament_soluble': ['0']
+}
+json.dump(filament, open('$FILAMENT_SETTINGS', 'w'), indent=2)
 " 2>&1
 
     info "Slicing with OrcaSlicer (UltiMaker S5 Griffin profile)..."
     if "$ORCA_BIN" \
-        --load-settings "$MERGED_SETTINGS" \
+        --load-settings "${MACHINE_SETTINGS};${PROCESS_SETTINGS}" \
+        --load-filaments "$FILAMENT_SETTINGS" \
         --outputdir "$TMPDIR" \
         --debug 3 \
         --no-check \
@@ -516,6 +561,9 @@ json.dump(merged, open('$MERGED_SETTINGS', 'w'), indent=2)
             fi
 
             if [[ -n "$CURA_DEF" && -f "$CURA_DEF" ]]; then
+                # Note: CuraEngine versions may require additional settings to avoid
+                # "Trying to retrieve setting with no value given" errors. We provide
+                # common ones here; add more -s flags if your Cura version needs them.
                 if "$CURA_BIN" slice -v \
                     -j "$CURA_DEF" \
                     -o "$CURA_GCODE" \
@@ -531,6 +579,7 @@ json.dump(merged, open('$MERGED_SETTINGS', 'w'), indent=2)
                     -s infill_line_distance=4.0 \
                     -s infill_pattern=grid \
                     -s roofing_layer_count=1 \
+                    -s flooring_layer_count=1 \
                     -l "$TEST_STL" \
                     > "$TMPDIR/cura_stdout.log" 2>&1; then
                     pass "CuraEngine slicing succeeded"
