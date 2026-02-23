@@ -217,8 +217,7 @@ std::string GCodeWriter::set_acceleration_internal(Acceleration type, unsigned i
     std::ostringstream gcode;
     if (FLAVOR_IS(gcfRepetier))
         gcode << (separate_travel ? "M202 X" : "M201 X") << acceleration << " Y" << acceleration;
-    else if (FLAVOR_IS(gcfRepRapFirmware) || FLAVOR_IS(gcfMarlinFirmware) || FLAVOR_IS(gcfGriffin) || FLAVOR_IS(gcfCheetah))
-        // Griffin/Cheetah: Marlin-based firmware uses M204 P<print> format (not legacy M204 S)
+    else if (FLAVOR_IS(gcfRepRapFirmware) || FLAVOR_IS(gcfMarlinFirmware))
         gcode << (separate_travel ? "M204 T" : "M204 P") << acceleration;
     else if (FLAVOR_IS(gcfKlipper)) {
         gcode << "SET_VELOCITY_LIMIT ACCEL=" << acceleration;

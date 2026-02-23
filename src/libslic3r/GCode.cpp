@@ -39,6 +39,9 @@
 #include <boost/filesystem.hpp>
 #include <boost/log/trivial.hpp>
 #include <boost/beast/core/detail/base64.hpp>
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_generators.hpp>
+#include <boost/uuid/uuid_io.hpp>
 
 #include <boost/nowide/iostream.hpp>
 #include <boost/nowide/cstdio.hpp>
@@ -3044,9 +3047,10 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
     this->placeholder_parser().set("used_filament_length", new ConfigOptionString(GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Used_Filament_Length_Placeholder)));
 
     std::string machine_start_gcode = this->placeholder_parser_process("machine_start_gcode", print.config().machine_start_gcode.value, initial_extruder_id);
-    if (print.config().gcode_flavor != gcfKlipper && !is_griffin_flavor(print.config().gcode_flavor.value)) {
+    if (print.config().gcode_flavor != gcfKlipper) {
         // Set bed temperature if the start G-code does not contain any bed temp control G-codes.
-        // Griffin/Cheetah: temperatures are set via the structured file header, not via G-code commands.
+        // Griffin/Cheetah: CuraEngine emits temperature M-codes alongside the structured header.
+        // The header provides pre-heat targets; M-codes provide runtime control and wait-for-temp.
         this->_print_first_layer_bed_temperature(file, print, machine_start_gcode, initial_extruder_id, true);
         // Set extruder(s) temperature before and after start G-code.
         this->_print_first_layer_extruder_temperatures(file, print, machine_start_gcode, initial_extruder_id, false);
@@ -3107,6 +3111,8 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
             file.write_format("G280 ; prime blob\n");
         } else {
             file.write_format("G280 S1 ; prime without blob\n");
+            // Restore Z position: firmware may alter Z during G280 S1
+            file.write_format("G0 Z%.3f ; restore Z after prime\n", m_writer.get_position().z());
         }
         // Retract after priming
         file.write(this->retract());
@@ -3264,11 +3270,8 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
                     this->placeholder_parser().set("current_object_idx", int(finished_objects));
                     std::string printing_by_object_gcode = this->placeholder_parser_process("printing_by_object_gcode", print.config().printing_by_object_gcode.value, initial_extruder_id);
                     // Set first layer bed and extruder temperatures, don't wait for it to reach the temperature.
-                    // Griffin/Cheetah: temperatures are set via the structured file header, not via G-code commands.
-                    if (!is_griffin_flavor(print.config().gcode_flavor.value)) {
-                        this->_print_first_layer_bed_temperature(file, print, printing_by_object_gcode, initial_extruder_id, false);
-                        this->_print_first_layer_extruder_temperatures(file, print, printing_by_object_gcode, initial_extruder_id, false);
-                    }
+                    this->_print_first_layer_bed_temperature(file, print, printing_by_object_gcode, initial_extruder_id, false);
+                    this->_print_first_layer_extruder_temperatures(file, print, printing_by_object_gcode, initial_extruder_id, false);
                     file.writeln(printing_by_object_gcode);
                 }
                 // Reset the cooling buffer internal state (the current position, feed rate, accelerations).
@@ -3876,6 +3879,11 @@ void GCode::print_machine_envelope(GCodeOutputStream &file, Print &print)
                 int(print.config().machine_max_acceleration_extruding.values.front() + 0.5),
                 int(print.config().machine_max_acceleration_retracting.values.front() + 0.5),
                 int(print.config().machine_max_acceleration_travel.values.front() + 0.5));
+        else if (is_griffin_flavor(flavor))
+            // Griffin uses legacy Marlin M204 S format (S sets both print and travel acceleration)
+            file.write_format("M204 S%d R%d\n",
+                int(print.config().machine_max_acceleration_extruding.values.front() + 0.5),
+                int(print.config().machine_max_acceleration_retracting.values.front() + 0.5));
         else
             file.write_format("M204 P%d R%d T%d\n",
                 int(print.config().machine_max_acceleration_extruding.values.front() + 0.5),
@@ -3925,9 +3933,8 @@ void GCode::write_griffin_header(GCodeOutputStream &file, Print &print, unsigned
         // Material volume used - placeholder replaced by GCodeProcessor with actual value
         file.write_format(";EXTRUDER_TRAIN.%d.MATERIAL.VOLUME_USED:{griffin_vol_%d}\n", (int)i, (int)i);
         file.write_format(";EXTRUDER_TRAIN.%d.NOZZLE.DIAMETER:%.1f\n", (int)i, print.config().nozzle_diameter.get_at(i));
-        std::string nozzle_id = print.config().machine_nozzle_id.value;
-        if (!nozzle_id.empty())
-            file.write_format(";EXTRUDER_TRAIN.%d.NOZZLE.NAME:%s\n", (int)i, nozzle_id.c_str());
+        // CuraEngine always emits NOZZLE.NAME, even if empty
+        file.write_format(";EXTRUDER_TRAIN.%d.NOZZLE.NAME:%s\n", (int)i, print.config().machine_nozzle_id.value.c_str());
     }
 
     // Bed temperature
@@ -3961,6 +3968,10 @@ void GCode::write_griffin_header(GCodeOutputStream &file, Print &print, unsigned
         file.write_format(";PRINT.SIZE.MAX.Y:%.1f\n", bbox.max.y());
         file.write_format(";PRINT.SIZE.MAX.Z:%.1f\n", bbox.max.z());
     }
+
+    // Slice UUID for firmware tracking and diagnostics
+    boost::uuids::uuid slice_uuid = boost::uuids::random_generator()();
+    file.write_format(";SLICE_UUID:%s\n", to_string(slice_uuid).c_str());
 
     file.write_format(";END_OF_HEADER\n");
 }
@@ -4689,8 +4700,8 @@ LayerResult GCode::process_layer(
 
         // Transition from 1st to 2nd layer. Adjust nozzle temperatures as prescribed by the nozzle dependent
         // nozzle_temperature_initial_layer vs. temperature settings.
-        // Griffin/Cheetah: firmware manages temperature transitions based on the header, skip M-code emission.
-        if (!is_griffin_flavor(print.config().gcode_flavor.value)) {
+        // Griffin/Cheetah: CuraEngine emits these temperature transitions normally alongside the header.
+        {
             for (const Extruder& extruder : m_writer.extruders()) {
                 if ((print.config().single_extruder_multi_material.value || m_ooze_prevention.enable) &&
                     extruder.id() != m_writer.filament()->id())
